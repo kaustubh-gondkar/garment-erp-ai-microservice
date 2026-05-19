@@ -1,0 +1,11 @@
+spring:
+  application:
+    name: ai-microservice
+
+  ai:
+    google:
+      genai:
+        api-key: ${GEMINI_API_KEY:YOUR_API_KEY_HERE}
+        chat:
+         options:
+           model: gemini-2.5-flash
