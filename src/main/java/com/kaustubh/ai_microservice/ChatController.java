@@ -1,6 +1,10 @@
 package com.kaustubh.ai_microservice;
 
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
+import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -13,7 +17,14 @@ public class ChatController {
 	// Spring Boot auto-configures the builder using your API key from
 	// application.yml
 	public ChatController(ChatClient.Builder builder) {
-		this.chatClient = builder.build();
+		InMemoryChatMemoryRepository repository = new InMemoryChatMemoryRepository();
+
+		ChatMemory chatMemory = MessageWindowChatMemory.builder().chatMemoryRepository(repository).maxMessages(20)
+				.build();
+//		this.chatClient = builder.build();
+
+		this.chatClient = builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build()).build();
+
 	}
 
 	// 1. We define the exact JSON structure we want the AI to return
@@ -45,5 +56,16 @@ public class ChatController {
 				// record
 				.entity(StorageAdvice.class);
 	}
+	
+	@GetMapping("/api/chat/garment/conversation")
+	public String converse(@RequestParam(value = "message") String message) {
+		return chatClient.prompt().system("You are an expert manufacturing assistant for a garment factory. Keep answers brief.")
+				.user(message)
+				.advisors(a  -> a.param("chat_memory_conversation_id","default_test_session"))
+				.call()
+				.content();
+	}
 
 }
+
+
