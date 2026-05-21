@@ -61,7 +61,7 @@ public class ChatController {
 	public String converse(@RequestParam(value = "message") String message) {
 		return chatClient.prompt().system("You are an expert manufacturing assistant for a garment factory. Keep answers brief.")
 				.user(message)
-				.advisors(a  -> a.param("chat_memory_conversation_id","default_test_session"))
+				.advisors(a  -> a.param("chat_memory_conversation_id","actual_user_it_here"))
 				.call()
 				.content();
 	}

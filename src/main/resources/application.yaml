@@ -1,11 +1,26 @@
 spring:
-  application:
-    name: ai-microservice
-
   ai:
     google:
       genai:
-        api-key: ${GEMINI_API_KEY:YOUR_API_KEY_HERE}
+        api-key: ${GEMINI_API_KEY}
         chat:
-         options:
-           model: gemini-2.5-flash
+          options:
+            model: gemini-2.5-flash
+        embedding:
+          api-key: ${GEMINI_API_KEY}
+          text:
+            options:
+              model: text-embedding-004
+                 
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: 768
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/garment_erp_db
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
