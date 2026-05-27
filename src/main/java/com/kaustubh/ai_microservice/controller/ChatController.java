@@ -1,4 +1,4 @@
-package com.kaustubh.ai_microservice;
+package com.kaustubh.ai_microservice.controller;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -9,14 +9,18 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.kaustubh.ai_microservice.service.PdfIngestionService;
+
 @RestController
 public class ChatController {
 
 	private final ChatClient chatClient;
 
+	private final PdfIngestionService pdfIngestionService;
+
 	// Spring Boot auto-configures the builder using your API key from
 	// application.yml
-	public ChatController(ChatClient.Builder builder) {
+	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService) {
 		InMemoryChatMemoryRepository repository = new InMemoryChatMemoryRepository();
 
 		ChatMemory chatMemory = MessageWindowChatMemory.builder().chatMemoryRepository(repository).maxMessages(20)
@@ -25,6 +29,7 @@ public class ChatController {
 
 		this.chatClient = builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build()).build();
 
+		this.pdfIngestionService = pdfIngestionService;
 	}
 
 	// 1. We define the exact JSON structure we want the AI to return
@@ -56,16 +61,18 @@ public class ChatController {
 				// record
 				.entity(StorageAdvice.class);
 	}
-	
+
 	@GetMapping("/api/chat/garment/conversation")
 	public String converse(@RequestParam(value = "message") String message) {
-		return chatClient.prompt().system("You are an expert manufacturing assistant for a garment factory. Keep answers brief.")
-				.user(message)
-				.advisors(a  -> a.param("chat_memory_conversation_id","actual_user_it_here"))
-				.call()
+		return chatClient.prompt()
+				.system("You are an expert manufacturing assistant for a garment factory. Keep answers brief.")
+				.user(message).advisors(a -> a.param("chat_memory_conversation_id", "actual_user_it_here")).call()
 				.content();
 	}
 
+	@GetMapping("/ingest")
+	public String triggerPdfIngestion() {
+		return pdfIngestionService.ingestPdf();
+	}
+
 }
-
-

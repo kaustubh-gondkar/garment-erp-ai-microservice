@@ -9,12 +9,14 @@ spring:
         embedding:
           api-key: ${GEMINI_API_KEY}
           text:
-            options:
-              model: text-embedding-004
+            options: 
+              dimensions: 768
+              model: gemini-embedding-001
                  
     vectorstore:
       pgvector:
         initialize-schema: true
+#        remove-existing-vector-store-table: true
         index-type: HNSW
         distance-type: COSINE_DISTANCE
         dimensions: 768
