@@ -6,10 +6,13 @@ import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.kaustubh.ai_microservice.service.PdfIngestionService;
+import com.kaustubh.ai_microservice.service.RagService;
 
 @RestController
 public class ChatController {
@@ -17,10 +20,11 @@ public class ChatController {
 	private final ChatClient chatClient;
 
 	private final PdfIngestionService pdfIngestionService;
+	private final RagService ragService;
 
 	// Spring Boot auto-configures the builder using your API key from
 	// application.yml
-	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService) {
+	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService, RagService ragService) {
 		InMemoryChatMemoryRepository repository = new InMemoryChatMemoryRepository();
 
 		ChatMemory chatMemory = MessageWindowChatMemory.builder().chatMemoryRepository(repository).maxMessages(20)
@@ -30,6 +34,7 @@ public class ChatController {
 		this.chatClient = builder.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build()).build();
 
 		this.pdfIngestionService = pdfIngestionService;
+		this.ragService = ragService;
 	}
 
 	// 1. We define the exact JSON structure we want the AI to return
@@ -70,9 +75,20 @@ public class ChatController {
 				.content();
 	}
 
-	@GetMapping("/ingest")
-	public String triggerPdfIngestion() {
-		return pdfIngestionService.ingestPdf();
+//	@GetMapping("/ingest")
+//	public String triggerPdfIngestion() {
+//		return pdfIngestionService.ingestPdf();
+//	}
+
+	// Milestone 2.4: The RAG Search Endpoint
+	@GetMapping("/search")
+	public String searchPdf(@RequestParam String query) {
+		return ragService.askDocument(query);
+	}
+
+	@PostMapping("/upload")
+	public String uploadPdf(@RequestParam("file") MultipartFile file) {
+		return pdfIngestionService.ingestUploadedFile(file);
 	}
 
 }
