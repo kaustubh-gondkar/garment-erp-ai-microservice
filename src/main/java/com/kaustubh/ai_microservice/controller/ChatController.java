@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.kaustubh.ai_microservice.service.InventoryAiService;
 import com.kaustubh.ai_microservice.service.PdfIngestionService;
 import com.kaustubh.ai_microservice.service.RagService;
 
@@ -21,10 +22,11 @@ public class ChatController {
 
 	private final PdfIngestionService pdfIngestionService;
 	private final RagService ragService;
+	private final InventoryAiService inventoryAiService;
 
 	// Spring Boot auto-configures the builder using your API key from
 	// application.yml
-	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService, RagService ragService) {
+	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService, RagService ragService,InventoryAiService inventoryAiService) {
 		InMemoryChatMemoryRepository repository = new InMemoryChatMemoryRepository();
 
 		ChatMemory chatMemory = MessageWindowChatMemory.builder().chatMemoryRepository(repository).maxMessages(20)
@@ -35,6 +37,7 @@ public class ChatController {
 
 		this.pdfIngestionService = pdfIngestionService;
 		this.ragService = ragService;
+		this.inventoryAiService = inventoryAiService;
 	}
 
 	// 1. We define the exact JSON structure we want the AI to return
@@ -90,5 +93,18 @@ public class ChatController {
 	public String uploadPdf(@RequestParam("file") MultipartFile file) {
 		return pdfIngestionService.ingestUploadedFile(file);
 	}
+	
+    @GetMapping("/chat/agent")
+    public String agenticChat(@RequestParam("message") String message) {
+        return chatClient.prompt()
+                .user(message)
+                .tools(inventoryAiService)
+                .advisors(advisorSpec -> advisorSpec
+                        .param("conversationId", "agent-session-123")
+                        .param("chat_memory_conversation_id", "agent-session-123")
+                )
+                .call()
+                .content();
+    }
 
 }
