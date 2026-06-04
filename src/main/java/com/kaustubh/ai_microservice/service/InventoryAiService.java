@@ -3,7 +3,11 @@ package com.kaustubh.ai_microservice.service;
 import java.util.List;
 
 import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.stereotype.Service;
+
 import com.kaustubh.ai_microservice.model.MaterialEntity;
 import com.kaustubh.ai_microservice.model.MaterialInventoryRequest;
 import com.kaustubh.ai_microservice.model.MaterialInventoryResponse;
@@ -46,6 +50,7 @@ public class InventoryAiService {
 
 	// faced issue in above comented method - if two material have same names(linen
 	// fabric and linen thread)
+	@Cacheable(value = "materialStock", key = "#materialName.toLowerCase()")
 	@Tool(description = "Check the current available stock levels. Returns a list of all matching materials. If the user's request is ambiguous, use this tool first to find the exact material name.")
 	public String checkMaterialStock(String materialName) {
 		System.out.println("🔍 AI triggered READ tool for: " + materialName);
@@ -70,6 +75,9 @@ public class InventoryAiService {
 	}
 
 	// TOOL 2: WRITE EXECUTIONER
+	   @Caching(evict = {
+		        @CacheEvict(value = "materialStock", key = "#request.materialName().toLowerCase()"),		        
+				@CacheEvict(value = "allMaterialStock", allEntries = true) })
 	@Tool(description = "Create a new raw material tracking entry or add stock. "
 			+ "CRITICAL: You MUST have the exact material name, quantity, and unit of measurement. "
 			+ "If the user does not specify the unit, DO NOT call this tool. Instead, reply to the user and ask them to specify the unit.")
@@ -89,5 +97,23 @@ public class InventoryAiService {
 		MaterialEntity saved = materialRepository.save(entity);
 
 		return new MaterialInventoryResponse("SUCCESS", "Successfully updated database stock.", saved.getId());
+	}
+
+	@Cacheable(value = "allMaterialStock")
+	@Tool(description = "Check total available stock. CRITICAL: You must always present the final answer to the user as a bulleted list.")
+	public String checkTotalStock() {
+		System.out.println("🔍 AI triggered READ tool for: total stock");
+		StringBuilder response = new StringBuilder("Found the following total stock:\n");
+
+		List<MaterialEntity> matches = materialRepository.findAll();
+		if (matches.isEmpty()) {
+			return "No inventory record found";
+		}
+
+		for (MaterialEntity mat : matches) {
+			response.append("- ").append(mat.getMaterialName()).append(": ").append(mat.getQuantity()).append(" ")
+					.append(mat.getUnit()).append("\n");
+		}
+		return response.toString();
 	}
 }
