@@ -75,9 +75,8 @@ public class InventoryAiService {
 	}
 
 	// TOOL 2: WRITE EXECUTIONER
-	   @Caching(evict = {
-		        @CacheEvict(value = "materialStock", key = "#request.materialName().toLowerCase()"),		        
-				@CacheEvict(value = "allMaterialStock", allEntries = true) })
+	@Caching(evict = { @CacheEvict(value = "materialStock", key = "#request.materialName().toLowerCase()"),
+			@CacheEvict(value = "allMaterialStock", allEntries = true) })
 	@Tool(description = "Create a new raw material tracking entry or add stock. "
 			+ "CRITICAL: You MUST have the exact material name, quantity, and unit of measurement. "
 			+ "If the user does not specify the unit, DO NOT call this tool. Instead, reply to the user and ask them to specify the unit.")
@@ -116,4 +115,13 @@ public class InventoryAiService {
 		}
 		return response.toString();
 	}
+
+	@Caching(evict = { @CacheEvict(value = "materialStock", key = "#materialName.toLowerCase()"),
+			@CacheEvict(value = "allMaterialStock", allEntries = true) })
+	@Tool(description = "Deletes a specific material from the inventory tracking system.")
+	public String removeDefectiveMaterial(String materialName) {
+		materialRepository.deleteByMaterialName(materialName);
+		return materialName + " has been removed from the system.";
+	}
+
 }

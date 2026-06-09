@@ -5,6 +5,7 @@ import java.util.Optional;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.kaustubh.ai_microservice.model.MaterialEntity;
 
@@ -14,4 +15,8 @@ public interface MaterialRepository extends JpaRepository<MaterialEntity, Long> 
 
 //    Optional<MaterialEntity> findFirstByMaterialNameContainingIgnoreCase(String materialName);
 	List<MaterialEntity> findByMaterialNameContainingIgnoreCase(String materialName);
+
+	@Transactional
+	void deleteByMaterialName(String materialName);
+
 }

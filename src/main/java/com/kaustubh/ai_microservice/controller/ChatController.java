@@ -2,6 +2,7 @@ package com.kaustubh.ai_microservice.controller;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
+import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.InMemoryChatMemoryRepository;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
@@ -14,6 +15,9 @@ import org.springframework.web.multipart.MultipartFile;
 import com.kaustubh.ai_microservice.service.InventoryAiService;
 import com.kaustubh.ai_microservice.service.PdfIngestionService;
 import com.kaustubh.ai_microservice.service.RagService;
+
+import org.springframework.http.MediaType;
+import reactor.core.publisher.Flux;
 
 @RestController
 public class ChatController {
@@ -106,5 +110,25 @@ public class ChatController {
                 .call()
                 .content();
     }
+    
+  
+
+    // ... inside your ChatController
+
+        @GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+        public Flux<String> streamAgenticChat(@RequestParam("message") String message) {
+            
+            return chatClient.prompt()
+                    .user(message)
+                    .tools(inventoryAiService)
+                    .advisors(a -> a
+                            .advisors(new SimpleLoggerAdvisor())
+                            .param("conversationId", "agent-session-123")
+                            .param("chat_memory_conversation_id", "agent-session-123")
+                        )
+                    .stream()  
+                    .content();
+        }
+
 
 }
