@@ -30,7 +30,8 @@ public class ChatController {
 
 	// Spring Boot auto-configures the builder using your API key from
 	// application.yml
-	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService, RagService ragService,InventoryAiService inventoryAiService) {
+	public ChatController(ChatClient.Builder builder, PdfIngestionService pdfIngestionService, RagService ragService,
+			InventoryAiService inventoryAiService) {
 		InMemoryChatMemoryRepository repository = new InMemoryChatMemoryRepository();
 
 		ChatMemory chatMemory = MessageWindowChatMemory.builder().chatMemoryRepository(repository).maxMessages(20)
@@ -97,38 +98,33 @@ public class ChatController {
 	public String uploadPdf(@RequestParam("file") MultipartFile file) {
 		return pdfIngestionService.ingestUploadedFile(file);
 	}
-	
-    @GetMapping("/chat/agent")
-    public String agenticChat(@RequestParam("message") String message) {
-        return chatClient.prompt()
-                .user(message)
-                .tools(inventoryAiService)
-                .advisors(advisorSpec -> advisorSpec
-                        .param("conversationId", "agent-session-123")
-                        .param("chat_memory_conversation_id", "agent-session-123")
-                )
-                .call()
-                .content();
-    }
-    
-  
 
-    // ... inside your ChatController
+	@GetMapping("/chat/agent")
+	public String agenticChat(@RequestParam("message") String message) {
+		return chatClient.prompt().user(message).tools(inventoryAiService).advisors(advisorSpec -> advisorSpec
+				.param("conversationId", "agent-session-123").param("chat_memory_conversation_id", "agent-session-123"))
+				.call().content();
+	}
 
-        @GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-        public Flux<String> streamAgenticChat(@RequestParam("message") String message) {
-            
-            return chatClient.prompt()
-                    .user(message)
-                    .tools(inventoryAiService)
-                    .advisors(a -> a
-                            .advisors(new SimpleLoggerAdvisor())
-                            .param("conversationId", "agent-session-123")
-                            .param("chat_memory_conversation_id", "agent-session-123")
-                        )
-                    .stream()  
-                    .content();
-        }
+	// ... inside your ChatController
 
+	@GetMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+	public Flux<String> streamAgenticChat(@RequestParam("message") String message) {
+
+		return chatClient.prompt().user(message).tools(inventoryAiService)
+				.advisors(a -> a.advisors(new SimpleLoggerAdvisor()).param("conversationId", "agent-session-123")
+						.param("chat_memory_conversation_id", "agent-session-123"))
+				.stream().content().onErrorResume(Exception.class, e -> {
+					System.err.print("PRIMARY AI FAILEDl: " + e.getMessage());
+					System.out.println("ROUTING TO BACKUP LOCAL MODEL...");
+
+					// In production, you would return localOllamaClient.prompt()... here.
+					// For the MVP, we mock the local model's reactive response.
+					return Flux.just("⚠️ **System Degradation Notice:** ",
+							"The primary cloud AI is currently unreachable. ",
+							"I am responding from the local backup system. ",
+							"Database transactions are temporarily paused until the primary connection is restored.");
+				});
+	}
 
 }
