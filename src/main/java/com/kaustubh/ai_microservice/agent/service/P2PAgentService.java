@@ -1,6 +1,7 @@
 package com.kaustubh.ai_microservice.agent.service;
 
 
+import com.kaustubh.ai_microservice.tools.ComplianceRagTools;
 import com.kaustubh.ai_microservice.tools.ProcurementTools;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
@@ -11,8 +12,9 @@ public class P2PAgentService {
 
     private final ChatClient chatClient;
     private final ProcurementTools procurementTools;
+    private final ComplianceRagTools complianceRagTools;
 
-    public P2PAgentService(ChatClient.Builder chatClientBuilder, ProcurementTools procurementTools) {
+    public P2PAgentService(ChatClient.Builder chatClientBuilder, ProcurementTools procurementTools, ComplianceRagTools complianceRagTools) {
         this.chatClient = chatClientBuilder
                 .defaultSystem("""
                         You are an Enterprise Procure-to-Pay (P2P) Supply Chain Risk Agent.
@@ -25,12 +27,13 @@ public class P2PAgentService {
                 .defaultAdvisors(new SimpleLoggerAdvisor())
                 .build();
         this.procurementTools = procurementTools;
+        this.complianceRagTools = complianceRagTools;
     }
 
     public String executeProcurementRun(String userPrompt) {
         return chatClient.prompt()
                 .user(userPrompt)
-                .tools(procurementTools)
+                .tools(procurementTools,complianceRagTools)
                 .call()
                 .content();
     }
