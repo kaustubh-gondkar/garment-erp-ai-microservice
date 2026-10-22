@@ -1,11 +1,14 @@
 package com.kaustubh.ai_microservice.tools;
 
+import com.kaustubh.ai_microservice.entity.InventoryItem;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -98,93 +101,150 @@ public class ProcurementTools {
         },
         params);
   }
+    @Tool(description = "Creates a purchase order after validating SKU against master inventory and calculating authoritative pricing from the database.")
+    @Transactional
+    public String createPurchaseOrder(String sku, String vendorId, int quantity, BigDecimal userProvidedAmountInr) {
+        try {
+            log.info("[TOOL CALL] createPurchaseOrder requested for sku={}, vendor={}, quantity={}", sku, vendorId, quantity);
 
-  @Transactional
-  @Tool(
-      description =
-          "Create a Purchase Order (PO) for the net deficit of a SKU. Enforces in-flight idempotency and the ₹50,000 HITL approval gate.")
-  public PurchaseOrderResult createPurchaseOrder(
-      @ToolParam(description = "The exact SKU code to order") String sku,
-      @ToolParam(description = "Positive integer net deficit quantity to order") int quantity) {
+            // 1. AUTHORITATIVE CATALOG LOOKUP (Prevent prompt price/SKU spoofing)
+            String catalogSql = "SELECT item_name, unit_price_inr FROM inventory_items WHERE sku = ?";
+            List<InventoryItem> items = jdbcTemplate.query(
+                    catalogSql,
+                    (rs, rowNum) -> new InventoryItem(rs.getString("item_name"), rs.getBigDecimal("unit_price_inr")),
+                    sku
+            );
 
-    log.info("[TOOL CALL] createPurchaseOrder invoked for sku={}, quantity={}", sku, quantity);
+            if (items.isEmpty()) {
+                log.warn("[CATALOG_VIOLATION] Attempted PO creation for non-existent SKU: {}", sku);
+                return "ERROR: SKU '" + sku + "' does not exist in the master inventory catalog. PO creation aborted.";
+            }
 
-    if (quantity <= 0) {
-      throw new IllegalArgumentException("Order quantity must be greater than zero.");
+            InventoryItem catalogItem = items.get(0);
+
+            // 2. CALCULATE AUTHORITATIVE TOTAL (Ignore prompt price manipulation)
+            BigDecimal authoritativeTotal = catalogItem.getUnitPriceInr().multiply(BigDecimal.valueOf(quantity));
+
+            if (userProvidedAmountInr != null && userProvidedAmountInr.compareTo(authoritativeTotal) != 0) {
+                log.warn("[PRICE_MISMATCH] Prompt stated INR {}, but catalog price for {} units of {} is INR {}. Enforcing DB catalog pricing.",
+                        userProvidedAmountInr, quantity, sku, authoritativeTotal);
+            }
+
+            // 3. DETERMINE APPROVAL GATE (> INR 50,000 threshold)
+            boolean requiresApproval = authoritativeTotal.compareTo(new BigDecimal("50000")) > 0;
+            String status = requiresApproval ? "PENDING_MANAGER_APPROVAL" : "AUTO_APPROVED";
+
+            UUID poId = UUID.randomUUID();
+            String toolIdempotencyKey = String.format("PO-%s-%s-%s-%s", sku, vendorId, quantity, UUID.randomUUID().toString().substring(0, 8));
+
+            // 4. INSERT INTO PURCHASE ORDERS WITH AUTHORITATIVE DATA
+            String insertSql = """
+                INSERT INTO purchase_orders (po_id, sku, vendor_id, quantity, total_amount_inr, status, idempotency_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                RETURNING po_id
+                """;
+
+            UUID insertedPoId = jdbcTemplate.queryForObject(
+                    insertSql,
+                    UUID.class,
+                    poId,
+                    sku,
+                    vendorId,
+                    quantity,
+                    authoritativeTotal, // Bound to DB price
+                    status,
+                    toolIdempotencyKey
+            );
+
+            log.info("[DB_SUCCESS] Secure PO created. ID: {}, SKU: {}, Total: INR {}, Status: {}",
+                    insertedPoId, sku, authoritativeTotal, status);
+
+            if (requiresApproval) {
+                return String.format(
+                        "AWAITING_HUMAN_APPROVAL: Purchase order %s created for %d units of %s (%s). Total: INR %s. Exceeds INR 50,000 threshold, requires manager approval.",
+                        insertedPoId, quantity, catalogItem.getItemName(), sku, authoritativeTotal
+                );
+            } else {
+                return String.format(
+                        "SUCCESS: Purchase order %s created for %d units of %s (%s). Total: INR %s. Status: AUTO_APPROVED.",
+                        insertedPoId, quantity, catalogItem.getItemName(), sku, authoritativeTotal
+                );
+            }
+
+        } catch (Exception e) {
+            log.error("[TOOL_ERROR] Failed to execute secure createPurchaseOrder", e);
+            return "Error creating purchase order: " + e.getMessage();
+        }
+    }
+    /**
+     * Confirms and transitions a high-value PO (> 50k INR) from PENDING_MANAGER_APPROVAL to APPROVED.
+     * Enforces pessimistic row locking (SELECT ... FOR UPDATE) to prevent race conditions
+     * during concurrent manager approval submissions.
+     *
+     * @param poId The UUID string representing the target purchase order.
+     * @param approverId The corporate identity/employee ID of the approving authority.
+     * @return Deterministic structured execution message.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public String confirmHighValuePurchaseOrder(UUID poId, String approverId) {
+        log.info("[HITL_CONFIRMATION] Initiating manual approval for poId: {} by approver: {}", poId, approverId);
+
+        // 1. Pessimistic lock row to avoid double-approval race conditions
+        String selectSql = """
+            SELECT status, total_amount_inr, sku, vendor_id 
+            FROM purchase_orders 
+            WHERE po_id = ? 
+            FOR UPDATE
+            """;
+
+        PoRecord po;
+        try {
+            po = jdbcTemplate.queryForObject(selectSql, (rs, rowNum) -> new PoRecord(
+                    rs.getString("status"),
+                    rs.getBigDecimal("total_amount_inr"),
+                    rs.getString("sku"),
+                    rs.getString("vendor_id")
+            ), poId);
+        } catch (EmptyResultDataAccessException e) {
+            log.error("[HITL_CONFIRMATION] Purchase order not found: {}", poId);
+            throw new IllegalArgumentException("Purchase order " + poId + " does not exist.");
+        }
+
+        // 2. Strict State Machine Validation
+        if ("APPROVED".equalsIgnoreCase(po.status()) || "AUTO_APPROVED".equalsIgnoreCase(po.status())) {
+            log.warn("[HITL_CONFIRMATION] PO {} is already approved. Idempotent return.", poId);
+            return String.format("PO %s is already approved.", poId);
+        }
+
+        if (!"PENDING_MANAGER_APPROVAL".equalsIgnoreCase(po.status())) {
+            log.error("[HITL_CONFIRMATION] Invalid state transition: PO {} is in status {}", poId, po.status());
+            throw new IllegalStateException(
+                    String.format("Cannot approve PO %s because current status is %s (expected PENDING_MANAGER_APPROVAL).",
+                            poId, po.status())
+            );
+        }
+
+        // 3. Atomic State Mutation
+        String updateSql = """
+            UPDATE purchase_orders 
+            SET status = 'APPROVED'
+            WHERE po_id = ?
+            """;
+
+        int rowsUpdated = jdbcTemplate.update(updateSql, poId);
+        if (rowsUpdated != 1) {
+            throw new IllegalStateException("Failed to update status for PO " + poId);
+        }
+
+        log.info("[HITL_CONFIRMATION] PO {} successfully approved by {}. SKU: {}, Amount: INR {}",
+                poId, approverId, po.sku(), po.totalAmount());
+
+        return String.format(
+                "PO %s for SKU %s (INR %s) successfully APPROVED by %s. Downstream ERP dispatch initiated.",
+                poId, po.sku(), po.totalAmount(), approverId
+        );
     }
 
-    // 1. Fetch physical stock, unit price, vendor, AND current in-flight open PO quantity
-    Map<String, Object> item =
-        jdbcTemplate.queryForMap(
-            """
-                SELECT
-                    i.current_stock, i.reorder_threshold, i.unit_price_inr, i.preferred_vendor_id,
-                    COALESCE(SUM(p.quantity), 0) AS in_flight_qty
-                FROM inventory_items i
-                LEFT JOIN purchase_orders p
-                    ON i.sku = p.sku
-                    AND p.status IN ('AUTO_APPROVED', 'PENDING_MANAGER_APPROVAL')
-                WHERE i.sku = ?
-                GROUP BY i.current_stock, i.reorder_threshold, i.unit_price_inr, i.preferred_vendor_id
-                """,
-            sku.trim());
+    private record PoRecord(String status, java.math.BigDecimal totalAmount, String sku, String vendorId) {}
 
-    int physicalStock = ((Number) item.get("current_stock")).intValue();
-    int inFlightQty = ((Number) item.get("in_flight_qty")).intValue();
-    int threshold = ((Number) item.get("reorder_threshold")).intValue();
-    int actualNetDeficit = Math.max(0, threshold - (physicalStock + inFlightQty));
-
-    // 2. State-Based Idempotency Shield: If open POs already cover the deficit, block duplicate
-    // retry!
-    if (actualNetDeficit == 0) {
-      log.warn(
-          "[IDEMPOTENCY SHIELD] Deficit for {} already covered by in-flight POs (inFlight={})",
-          sku,
-          inFlightQty);
-      return new PurchaseOrderResult(
-          null,
-          sku.trim(),
-          0,
-          BigDecimal.ZERO,
-          "SKIPPED_ALREADY_IN_FLIGHT",
-          "No PO created: Stock deficit is already covered by existing open Purchase Orders ("
-              + inFlightQty
-              + " units in flight).");
-    }
-
-    // Clamp quantity to actualNetDeficit if LLM tried to over-order
-    int safeQuantity = Math.min(quantity, actualNetDeficit);
-
-    BigDecimal unitPrice = (BigDecimal) item.get("unit_price_inr");
-    String vendorId = (String) item.get("preferred_vendor_id");
-    BigDecimal totalAmount = unitPrice.multiply(BigDecimal.valueOf(safeQuantity));
-
-    String status =
-        totalAmount.compareTo(HITL_THRESHOLD_INR) > 0
-            ? "PENDING_MANAGER_APPROVAL"
-            : "AUTO_APPROVED";
-
-    UUID poId = UUID.randomUUID();
-    // Unique key per stock state transition
-    String idempotencyKey =
-        "PO-%s-STOCK%d-INFLIGHT%d-%s"
-            .formatted(sku.trim(), physicalStock, inFlightQty, poId.toString().substring(0, 8));
-
-    jdbcTemplate.update(
-        "INSERT INTO purchase_orders (po_id, sku, vendor_id, quantity, total_amount_inr, status, idempotency_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        poId,
-        sku.trim(),
-        vendorId,
-        safeQuantity,
-        totalAmount,
-        status,
-        idempotencyKey);
-
-    String message =
-        status.equals("PENDING_MANAGER_APPROVAL")
-            ? "PO exceeds ₹50,000 HITL threshold. Routed to Manager Approval Queue."
-            : "PO is within ₹50,000 limit and has been AUTO_APPROVED for dispatch.";
-
-    return new PurchaseOrderResult(poId, sku.trim(), safeQuantity, totalAmount, status, message);
-  }
 }
