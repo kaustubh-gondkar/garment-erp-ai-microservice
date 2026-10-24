@@ -198,6 +198,10 @@ public class P2PAgentOrchestrator {
 """;
 
       jdbcTemplate.update(sql, runId, prompt,key );
+        jdbcTemplate.update("""
+                INSERT INTO agent_workflow_runs (run_id, idempotency_key, user_prompt, status)
+                VALUES (?, ?, ?, 'IN_PROGRESS')
+                """, runId, key, prompt);
 
     } catch (DataAccessException e) {
       log.error("insertInitialWorkflowRun Failed", e);

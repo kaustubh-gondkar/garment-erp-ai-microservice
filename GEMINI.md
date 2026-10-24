@@ -32,7 +32,7 @@ EXISTING POSTMAN-VERIFIED BEANS & SIGNATURES (DO NOT REWRITE):
         * Contract: Already enforces in-flight duplicate PO prevention and > ₹50,000 PENDING_MANAGER_APPROVAL HITL gate.
     - public String confirmHighValuePurchaseOrder(UUID poId, String approverId) {
 
-2. ComplianceRagService / ComplianceTools (@Component) [ADR-002]:
+2. ComplianceRagTools / ComplianceTools (@Component) [ADR-002]:
     - public List<PolicyChunkDto> verifyVendorSlaAndPolicy(String query, String vendorId)
         * Contract: Runs pgvector + tsvector RRF (k=60) hybrid search + Cross-Encoder reranking.
 
@@ -52,5 +52,13 @@ EXISTING POSTMAN-VERIFIED BEANS & SIGNATURES (DO NOT REWRITE):
       Contract: Requires ROLE_PROCUREMENT_MANAGER before delegating to ProcurementTools.approveOrRejectPo.
     - public OrchestrationResultDto replayDlqEvent(Long dlqId, EnterpriseActorContext actorContext)
       Contract: Uses PostgreSQL FOR UPDATE SKIP LOCKED to safely replay failed agent runs from agent_dlq_events.
+
+6. P2pLifecycleCoordinatorService (@Service) & P2pControlPlaneController (@RestController) [ADR-006]:
+- public HitlWorkflowResumeResponse resumePausedHitlWorkflow(HitlWorkflowResumeRequest request, RbacGuardService.EnterpriseActorContext actorContext)
+  Contract: Enforces ROLE_PROCUREMENT_MANAGER via RbacGuardService, validates Cross-SKU integrity between purchase_orders and erp_event_ledger, delegates PO approval/rejection to ProcurementTools.confirmHighValuePurchaseOrder / ErpEventMiddlewareService.executeManagerPoDecision, and synchronizes agent_workflow_runs (LIMIT 1 + backfill upsert) and erp_event_ledger to COMPLETED_AFTER_HITL / REJECTED_BY_MANAGER.
+- public CorrelatedExecutionTraceDto getCorrelatedExecutionTrace(String idempotencyKey, RbacGuardService.EnterpriseActorContext actorContext)
+  Contract: Runs inside read-write @Transactional (to permit RbacGuardService audit INSERT), joining erp_event_ledger, agent_workflow_runs, purchase_orders, api_cost_logs, and agent_security_audit_log (matched by correlation_id and PO:<poId>) to return full status, token cost in INR, poCreatedAt, hitlResolvedAt, and hitlResolvedBy.
+- public DlqBatchSweepResultDto sweepPendingDlqEvents(int batchLimit, RbacGuardService.EnterpriseActorContext actorContext)
+  Contract: Queries retryable agent_dlq_events (retry_count < 3) and delegates each row to ErpEventMiddlewareService.replayDlqEvent.
 
 

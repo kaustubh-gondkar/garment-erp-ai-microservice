@@ -1,5 +1,6 @@
 package com.kaustubh.ai_microservice.middleware.security;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -8,6 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Set;
 import java.util.UUID;
 
+@Slf4j
 @Service
  public class RbacGuardService {
 
@@ -63,6 +65,7 @@ import java.util.UUID;
         );
 
         if (!isAllowed) {
+            log.error("RBAC_DENIED: Actor '{}' with role '{}' is not authorized for '{}' on '{}'. Required: {}", ctx.actorId(), ctx.actorRole(), actionName, targetResource, allowedRoles);
             throw new ResponseStatusException(
                     HttpStatus.FORBIDDEN,
                     String.format("RBAC_DENIED: Actor '%s' with role '%s' is not authorized for '%s' on '%s'. Required: %s",
