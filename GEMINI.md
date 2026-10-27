@@ -60,5 +60,21 @@ EXISTING POSTMAN-VERIFIED BEANS & SIGNATURES (DO NOT REWRITE):
   Contract: Runs inside read-write @Transactional (to permit RbacGuardService audit INSERT), joining erp_event_ledger, agent_workflow_runs, purchase_orders, api_cost_logs, and agent_security_audit_log (matched by correlation_id and PO:<poId>) to return full status, token cost in INR, poCreatedAt, hitlResolvedAt, and hitlResolvedBy.
 - public DlqBatchSweepResultDto sweepPendingDlqEvents(int batchLimit, RbacGuardService.EnterpriseActorContext actorContext)
   Contract: Queries retryable agent_dlq_events (retry_count < 3) and delegates each row to ErpEventMiddlewareService.replayDlqEvent.
+- 
+4. P2pGraphOrchestrator (@Service) & P2PAgentService (@Service) [ADR-004 / ADR-007]:
+- public GraphExecutionResult executeGraph(String conversationId, String userMessage)
+  Contract: Probes remote MCP Server (:8081) via P2pMcpToolRouter.resolveActiveToolCallbacks() at graph start (failing fast to agent_dlq_events if :8081 is unreachable), runs P2pIntentRouter + virtual-thread fan-out pre-checks (checkInventoryLevels + checkCompliancePolicy), computes authoritative BigDecimal net deficit & ₹50,000 HITL threshold context, and delegates to P2PAgentService.executeWithStructuredContext(structuredContext, conversationId, activeMcpCallbacks).
+- public String executeWithStructuredContext(String structuredContext, String conversationId, ToolCallback[] activeMcpCallbacks)
+  Contract: Attaches remote MCP ToolCallbacks and conversation_id memory advisor to ChatClient so Gemini executes createPurchaseOrder remotely on Port 8081.
+
+7. P2pMcpServerConfig (@Configuration) & P2pMcpToolRouter (@Component) [ADR-007]:
+- Profiles & Ports:
+    * `mcp-server` (Port 8081): Runs `spring-ai-starter-mcp-server-webmvc` exposing `ProcurementTools` and `ComplianceRagTools` over HTTP/SSE (`GET /sse`, `POST /mcp/message`) and `GET /mcp/diagnostics/tools` with Hikari pool capped at 3.
+    * `mcp-client` (Port 8080): Runs `spring-ai-starter-mcp-client` connected to `http://localhost:8081` with Hikari pool capped at 3.
+    * `mcp-stdio` (Headless): Runs `web-application-type: none`, `banner-mode: off`, `stdio: true` for `@google/gemini-cli` and Claude Desktop subprocess execution.
+- public ToolCallbackProvider p2pEnterpriseMcpToolCallbackProvider(ProcurementTools procurementTools, ComplianceRagTools complianceRagTools)
+  Contract: Exposes existing @Tool methods (checkInventoryLevels, createPurchaseOrder, confirmHighValuePurchaseOrder, checkCompliancePolicy) via MethodToolCallbackProvider without rewriting domain code.
+- public synchronized ToolCallback[] resolveActiveToolCallbacks()
+  Contract: Probes Port 8081 via McpSyncClient.listTools(), self-heals stale/EOF SSE streams by instantiating a fresh HttpClientSseClientTransport connection when Port 8081 restarts, strips Spring AI's client/server prefix so Gemini receives exact tool names, and fails closed (throwing IllegalStateException) when Port 8081 is down so ErpEventMiddlewareService routes failed webhooks into agent_dlq_events (status = PENDING_REPLAY).
 
 

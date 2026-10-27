@@ -1,0 +1,40 @@
+server:
+  port: 8081
+  tomcat:
+    threads:
+      max: 15          # Low-RAM tuning: MCP tool execution only needs a small thread pool
+      min-spare: 2
+
+spring:
+  application:
+    name: p2p-supply-chain-mcp-server
+  main:
+    lazy-initialization: false # Keep false on server so MethodToolCallbackProvider registers on boot
+
+  datasource:
+    hikari:
+      pool-name: MpcServerHikariPool
+      maximum-pool-size: 3     # Serverless Neon DB protection (3 connections max for tool queries)
+      minimum-idle: 1
+      idle-timeout: 30000
+      connection-timeout: 20000
+
+  ai:
+    mcp:
+      # Disable MCP Client inside the Server JVM so it never tries to connect to itself
+      client:
+        enabled: false
+      # Enable MCP Server over Spring WebMVC HTTP/SSE
+      server:
+        enabled: true
+        name: p2p-enterprise-supply-chain-mcp-server
+        version: 1.0.0
+        type: SYNC
+        stdio: false
+        sse-endpoint: /sse
+        sse-message-endpoint: /mcp/message
+        capabilities:
+          tool: true
+          resource: false
+          prompt: false
+          logging: true

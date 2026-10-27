@@ -1,11 +1,13 @@
 package com.kaustubh.ai_microservice.graph;
 
 import com.kaustubh.ai_microservice.agent.service.P2PAgentService;
+import com.kaustubh.ai_microservice.config.P2pMcpToolRouter;
 import com.kaustubh.ai_microservice.graph.P2pGraphModels.*;
 import com.kaustubh.ai_microservice.tools.ComplianceRagTools;
 import com.kaustubh.ai_microservice.tools.ProcurementTools;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -24,7 +26,8 @@ public class P2pGraphOrchestrator {
     private final P2pIntentRouter intentRouter;
     private final ProcurementTools procurementTools;
     private final ComplianceRagTools complianceRagTools;
-    private final P2PAgentService p2pAgentService; // Reusing existing service
+    private final P2PAgentService p2pAgentService;
+    private final P2pMcpToolRouter p2pMcpToolRouter;
 
     private final ExecutorService virtualThreadExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -32,16 +35,21 @@ public class P2pGraphOrchestrator {
             P2pIntentRouter intentRouter,
             ProcurementTools procurementTools,
             ComplianceRagTools complianceRagTools,
-            P2PAgentService p2pAgentService
+            P2PAgentService p2pAgentService,
+            P2pMcpToolRouter p2pMcpToolRouter
     ) {
         this.intentRouter = intentRouter;
         this.procurementTools = procurementTools;
         this.complianceRagTools = complianceRagTools;
         this.p2pAgentService = p2pAgentService;
+        this.p2pMcpToolRouter = p2pMcpToolRouter;
     }
 
     public GraphExecutionResult executeGraph(String conversationId, String userMessage) {
         long graphStart = System.currentTimeMillis();
+
+        // 1. Probe Port 8081 & resolve remote MCP tool callbacks (fails fast to DLQ if Port 8081 is down)
+        ToolCallback[] activeMcpCallbacks = p2pMcpToolRouter.resolveActiveToolCallbacks();
 
         long routerStart = System.currentTimeMillis();
         RoutingDecision decision = intentRouter.route(userMessage);
@@ -104,11 +112,11 @@ public class P2pGraphOrchestrator {
         String structuredContext = String.format("""
             [VERIFIED GRAPH STATE - IN-FLIGHT & INVENTORY AWARENESS]
             1. Inventory & In-Flight Audit:
-               - SKU: %s
-               - Physical Stock: %s
-               - In-Flight Open PO Quantity: %s
-               - Net Deficit To Order: %s
-               - Requested Qty: %d | Unit Price: ₹%s | Total: ₹%s | Exceeds ₹50k HITL Gate: %s
+            - SKU: %s
+            - Physical Stock: %s
+            - In-Flight Open PO Quantity: %s
+            - Net Deficit To Order: %s
+            - Requested Qty: %d | Unit Price: ₹%s | Total: ₹%s | Exceeds ₹50k HITL Gate: %s
             2. Vendor SLA / Policy Compliance Pre-Check: %s
             
             User Request: %s
@@ -133,8 +141,12 @@ public class P2pGraphOrchestrator {
                 estimatedTotal
         );
 
-        // REUSABILITY WIN: Delegate execution cleanly to P2PAgentService
-        String finalResponse = p2pAgentService.executeWithStructuredContext(structuredContext, conversationId);
+        // Delegate execution to P2PAgentService with remote MCP callbacks from Port 8081
+        String finalResponse = p2pAgentService.executeWithStructuredContext(
+                structuredContext,
+                conversationId,
+                activeMcpCallbacks
+        );
 
         return new GraphExecutionResult(
                 conversationId,

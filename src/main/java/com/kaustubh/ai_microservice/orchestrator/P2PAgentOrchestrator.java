@@ -1,14 +1,17 @@
 package com.kaustubh.ai_microservice.orchestrator;
 
+import com.kaustubh.ai_microservice.config.P2pMcpToolRouter;
 import com.kaustubh.ai_microservice.exception.AgentLoopTerminationException;
 import com.kaustubh.ai_microservice.harness.LoopGuardAdvisor;
 import com.kaustubh.ai_microservice.tools.ComplianceRagTools;
 import com.kaustubh.ai_microservice.tools.ProcurementTools;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.dao.EmptyResultDataAccessException;
@@ -28,18 +31,20 @@ public class P2PAgentOrchestrator {
   private final LoopGuardAdvisor loopGuardAdvisor;
   private final JdbcTemplate jdbcTemplate;
   private final ProcurementTools procurementTools;
+  private final P2pMcpToolRouter p2pMcpToolRouter;
 
   public P2PAgentOrchestrator(
-      ChatClient.Builder chatClientBuilder,
-      LoopGuardAdvisor loopGuardAdvisor,
-      ProcurementTools procurementTools,
-      ComplianceRagTools complianceRagTools,
-      JdbcTemplate jdbcTemplate) {
+          ChatClient.Builder chatClientBuilder,
+          LoopGuardAdvisor loopGuardAdvisor,
+          ProcurementTools procurementTools,
+          ComplianceRagTools complianceRagTools,
+          JdbcTemplate jdbcTemplate, P2pMcpToolRouter p2pMcpToolRouter) {
     this.loopGuardAdvisor = loopGuardAdvisor;
     this.procurementTools = procurementTools;
     this.jdbcTemplate = jdbcTemplate;
+      this.p2pMcpToolRouter = p2pMcpToolRouter;
 
-    // Register tools and the advisor on the builder directly
+      // Register tools and the advisor on the builder directly
     this.chatClient =
         chatClientBuilder
             .defaultSystem(
@@ -51,14 +56,16 @@ public class P2PAgentOrchestrator {
                     3. STEP 3: NEVER invent, hallucinate, or assume tool results or purchase order IDs. Only report PO IDs returned directly by the 'createPurchaseOrder' tool execution.
                     4. If any tool fails or returns an error, halt immediately and report the error.
                     """)
-            .defaultTools(procurementTools, complianceRagTools)
+//            .defaultTools(procurementTools, complianceRagTools)
             .defaultAdvisors(loopGuardAdvisor)
             .build();
   }
 
   public WorkflowExecutionResult executeWorkflow(String idempotencyKey, String userPrompt) {
     Optional<WorkflowExecutionResult> existingRun = findExistingWorkflow(idempotencyKey);
-    if (existingRun.isPresent()) {
+      ToolCallback[] activeMcpCallbacks = p2pMcpToolRouter.resolveActiveToolCallbacks();
+
+      if (existingRun.isPresent()) {
       log.warn("[IDEMPOTENCY_CACHE_HIT] Request with key {} already exists", idempotencyKey);
       return existingRun.get();
     }
@@ -73,12 +80,13 @@ public class P2PAgentOrchestrator {
     }
 
     try {
-      // Pass ONLY the context parameter here (the advisor is already in defaultAdvisors)
+
       ChatResponse chatResponse =
           chatClient
               .prompt()
               .user(userPrompt)
               .advisors(spec -> spec.param(LoopGuardAdvisor.WORKFLOW_RUN_ID_KEY, runId.toString()))
+              .toolCallbacks(activeMcpCallbacks)
               .call()
               .chatResponse();
 

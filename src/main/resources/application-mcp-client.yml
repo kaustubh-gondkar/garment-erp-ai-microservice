@@ -1,0 +1,40 @@
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 25
+      min-spare: 4
+
+spring:
+  application:
+    name: p2p-orchestrator-mcp-client
+  main:
+    lazy-initialization: true  # Low-RAM tuning: only load beans as needed on the client host
+
+  datasource:
+    hikari:
+      pool-name: OrchestratorClientHikariPool
+      maximum-pool-size: 3     # Serverless Neon DB protection (3 connections for ledger/RBAC/audit)
+      minimum-idle: 1
+      idle-timeout: 30000
+      connection-timeout: 20000
+
+  ai:
+    mcp:
+      # Disable MCP Server inside the Client JVM
+      server:
+        enabled: false
+      # Enable MCP Client connected to Port 8081 over HTTP/SSE
+      client:
+        enabled: true
+        name: p2p-graph-orchestrator-client
+        version: 1.0.0
+        type: SYNC
+        request-timeout: 30s
+        initialized: true
+        toolcallback:
+          enabled: true
+        sse:
+          connections:
+            p2p-supply-chain-mcp-server:
+              url: http://localhost:8081

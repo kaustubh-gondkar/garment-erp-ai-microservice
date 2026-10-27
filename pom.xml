@@ -147,6 +147,17 @@
             <artifactId>caffeine</artifactId>
         </dependency>
 
+        <!-- 1. MCP Server over Spring MVC (HTTP/SSE + optional STDIO transport) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
+        </dependency>
+
+        <!-- 2. MCP Client (Connects Orchestrator ChatClient to remote MCP Server) -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-mcp-client</artifactId>
+        </dependency>
 
     </dependencies>
     <build>

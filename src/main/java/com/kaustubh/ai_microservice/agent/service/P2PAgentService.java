@@ -6,6 +6,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -35,7 +36,7 @@ public class P2PAgentService {
                         MessageChatMemoryAdvisor.builder(chatMemory).build()
                         // loopCircuitBreakerAdvisor // Uncomment if you want circuit breaking globally here
                 )
-                .defaultTools(procurementTools, complianceRagTools)
+//                .defaultTools(procurementTools, complianceRagTools)
                 .build();
         this.procurementTools = procurementTools;
         this.complianceRagTools = complianceRagTools;
@@ -50,9 +51,10 @@ public class P2PAgentService {
     }
 
     // NEW: Reusable method for P2pGraphOrchestrator that supports conversation memory & structured context
-    public String executeWithStructuredContext(String structuredContext, String conversationId) {
+    public String executeWithStructuredContext(String structuredContext, String conversationId, ToolCallback[] activeMcpCallbacks) {
         return chatClient.prompt()
                 .user(structuredContext)
+                .toolCallbacks(activeMcpCallbacks)
                 .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, conversationId))
                 .call()
                 .content();
