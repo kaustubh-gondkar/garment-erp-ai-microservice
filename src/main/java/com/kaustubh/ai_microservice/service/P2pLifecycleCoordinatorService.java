@@ -344,7 +344,23 @@ public class P2pLifecycleCoordinatorService {
             idempotencyKey);
 
         if (mainTraceList.isEmpty()) {
-            throw new IllegalArgumentException("No workflow or ERP ledger trace found for key: " + idempotencyKey);
+            String errorMsg = "No workflow or ERP ledger trace found for key: " + idempotencyKey;
+            log.warn("[ControlPlane-Trace] {} (queried by actor={})", errorMsg, actorContext.actorId());
+
+            return new CorrelatedExecutionTraceDto(
+                    idempotencyKey,
+                    "TRACE_NOT_FOUND",
+                    "TRACE_NOT_FOUND",
+                    null,
+                    null,
+                    BigDecimal.ZERO,
+                    "NONE",
+                    null,
+                    null,
+                    null,
+                    errorMsg,
+                    new TokenEconomicsSummaryDto(0, 0, 0, 0, 0, BigDecimal.ZERO),
+                    List.of());
         }
 
         Object[] row = mainTraceList.getFirst();

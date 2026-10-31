@@ -2,6 +2,7 @@ spring:
   main:
     web-application-type: none # Zero Tomcat footprint (~150 MB RAM)
     banner-mode: off           # CRITICAL: Prevents ASCII banner from corrupting JSON-RPC stdout
+    log-startup-info: false
   ai:
     mcp:
       client:
@@ -13,8 +14,17 @@ spring:
         type: SYNC
         stdio: true            # Switches transport from WebMVC SSE to stdin/stdout pipes
 
+    datasource:
+      hikari:
+        maximum-pool-size: 2
+        minimum-idle: 1
+
 logging:
   pattern:
     console: ""                # Silence console stdout completely
   file:
     name: logs/p2p-mcp-stdio-server.log
+  level:
+    root: ERROR
+    org.springframework: OFF
+    com.zaxxer.hikari: OFF

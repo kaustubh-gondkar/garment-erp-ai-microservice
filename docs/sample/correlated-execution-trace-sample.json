@@ -1,0 +1,45 @@
+{
+  "idempotencyKey": "BATCH-2026-10-24-E2E-001",
+  "erpLedgerStatus": "AGENT_TRIGGERED",
+  "workflowRunStatus": "COMPLETED_AFTER_HITL",
+  "sku": "SKU-TITANIUM-VALVE-99",
+  "poId": "9e283f58-4099-4f57-9991-8f518d0d2804",
+  "poTotalAmountInr": 62500,
+  "poStatus": "APPROVED",
+  "poCreatedAt": "2026-10-29T06:11:22.83883Z",
+  "hitlResolvedAt": "2026-10-31T06:04:58.158706Z",
+  "hitlResolvedBy": "mgr-procurement-01",
+  "finalAgentResponse": "[resolved_at=2026-10-24T13:08:35.884717900+05:30] HITL APPROVE by mgr-rajesh-01: PO b5113dce-bc6d-4e8f-ad02-aa0f40ed79a0 is already approved. | Reason: Verified emergency SLA compliance and Q4 budget headroom | [resolved_at=2026-10-27T12:32:08.120900600+05:30] HITL APPROVE by mgr-rajesh-01: PO 992d5d6c-72f7-48c4-b255-6d079fcf4b30 for SKU SKU-TITANIUM-VALVE-99 (INR 62500.00) successfully APPROVED by mgr-rajesh-01. Downstream ERP dispatch initiated. | Reason: Verified emergency SLA compliance and Q4 budget headroom | [resolved_at=2026-10-27T12:40:37.691806900+05:30] HITL APPROVE by mgr-rajesh-01: PO 992d5d6c-72f7-48c4-b255-6d079fcf4b30 is already approved. | Reason: Verified emergency SLA compliance and Q4 budget headroom | [resolved_at=2026-10-27T13:31:14.979288300+05:30] HITL APPROVE by mgr-rajesh-01: PO 992d5d6c-72f7-48c4-b255-6d079fcf4b30 is already approved. | Reason: Verified emergency SLA compliance and Q4 budget headroom | [resolved_at=2026-10-27T13:31:28.854945800+05:30] HITL APPROVE by mgr-rajesh-01: PO 658725b6-53fb-4e52-a48f-d3c1c7af5fbf for SKU SKU-TITANIUM-VALVE-99 (INR 62500.00) successfully APPROVED by mgr-rajesh-01. Downstream ERP dispatch initiated. | Reason: Verified emergency SLA compliance and Q4 budget headroom | [resolved_at=2026-10-31T11:34:58.242716300+05:30] HITL APPROVE by mgr-procurement-01: PO 9e283f58-4099-4f57-9991-8f518d0d2804 for SKU SKU-TITANIUM-VALVE-99 (INR 62500.00) successfully APPROVED by mgr-procurement-01. Downstream ERP dispatch initiated. | Reason: Verified titanium valve stockout and vendor SLA compliance POL-PROC-2026-09.",
+  "tokenEconomics": {
+    "totalStepCount": 3,
+    "maxStepsAllowed": 5,
+    "workflowTotalTokens": 0,
+    "loggedInputTokens": 0,
+    "loggedOutputTokens": 0,
+    "estimatedCostInr": 0
+  },
+  "securityAuditTrail": [
+    {
+      "id": 74,
+      "correlationId": "PO-SKU-TITANIUM-VALVE-99-VEND-TATA-IND-25-2d87e872",
+      "actorId": "mgr-procurement-01",
+      "actorRole": "ROLE_PROCUREMENT_MANAGER",
+      "actionName": "HITL_WORKFLOW_RESUME",
+      "targetResource": "PO:9e283f58-4099-4f57-9991-8f518d0d2804",
+      "decision": "ALLOWED",
+      "reason": "Authorized via role ROLE_PROCUREMENT_MANAGER",
+      "createdAt": "2026-10-31T06:04:58.158706Z"
+    },
+    {
+      "id": 77,
+      "correlationId": "PO-SKU-TITANIUM-VALVE-99-VEND-TATA-IND-25-2d87e872",
+      "actorId": "mgr-procurement-01",
+      "actorRole": "ROLE_PROCUREMENT_MANAGER",
+      "actionName": "VIEW_CORRELATED_AUDIT_TRACE",
+      "targetResource": "RUN:PO-SKU-TITANIUM-VALVE-99-VEND-TATA-IND-25-2d87e872",
+      "decision": "ALLOWED",
+      "reason": "Authorized via role ROLE_PROCUREMENT_MANAGER",
+      "createdAt": "2026-10-31T06:10:44.736111Z"
+    }
+  ]
+}
