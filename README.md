@@ -1,130 +1,92 @@
-# System 1: Enterprise Procure-to-Pay (P2P) & Supply Chain Risk Agent
+# Enterprise Procure-to-Pay (P2P) & Supply Chain Risk Agent (System 1)
 
-> **BLUF (Bottom Line Up Front):** A production-grade, event-driven Agentic AI microservice built with **Java 21, Spring Boot 3.x, Spring AI, Model Context Protocol (MCP), and Neon Serverless PostgreSQL (`pgvector` + `tsvector`)**. It automates stockout detection, hybrid-RAG vendor SLA compliance verification, and transactional Purchase Order (PO) generation with a **deterministic ₹50,000 Human-in-the-Loop (HITL) approval gate**, **Two-Hop Cross-JVM RBAC auditing**, **self-healing SSE transport**, and a **fail-closed Dead Letter Queue (DLQ)**.
+**Production-Grade Agentic Microservice | Java 21 · Spring Boot 3.3 · Spring AI · Model Context Protocol (MCP) · Neon Serverless PostgreSQL (`pgvector` + `tsvector`)**
 
----
-
-## 1. Executive Architecture & Capability Highlights
-
-| Capability Dimension | Production Implementation in This Repository | Architectural Guarantee |
-| :--- | :--- | :--- |
-| **Agentic Graph Orchestration** (`ADR-004`) | `P2pGraphOrchestrator` + Java 21 Virtual Threads fan-out pre-checks (`checkInventoryLevels` + `checkCompliancePolicy`) | Deterministic `BigDecimal` net-deficit calculation (physical stock + in-flight POs) before LLM synthesis. |
-| **Hybrid RAG + Reranking** (`ADR-002`) | `ComplianceRagTools` combining `pgvector` dense embeddings + PostgreSQL `tsvector` BM25 via **Reciprocal Rank Fusion (RRF, k=60)** + Cross-Encoder Reranking | Prevents policy hallucination on vendor penalty clauses and split-PO prohibitions (`POL-PROC-2026-09`). |
-| **Deterministic HITL Gate** (`ADR-001`, `ADR-006`) | POs $\le$ ₹50,000 auto-approve; POs $>$ ₹50,000 transition to `PENDING_MANAGER_APPROVAL` and pause workflow state | Structural capability isolation: `confirmHighValuePurchaseOrder` is **excluded from the MCP Server**, making LLM self-approval impossible even under prompt injection. |
-| **Dual-Profile MCP Topology** (`ADR-007`, `ADR-010`) | Standalone MCP Server (`:8081` HTTP/SSE & headless `mcp-stdio`) consumed by MCP Client Orchestrator (`:8080`) via `P2pMcpToolRouter` | Zero domain code duplication (`MethodToolCallbackProvider`); auto-heals broken SSE pipes on `:8081` restart; fails closed to `agent_dlq_events` when unreachable. |
-| **Two-Hop Zero-Trust RBAC & AspectJ Audit** (`ADR-005`, `ADR-008`) | Client-side `RbacGuardService` (`:8080`) + Server-side `P2pMcpServerAuditAspect` (`@Around` on `:8081`) + `McpServerTransportGuardFilter` | Every remote MCP tool call writes an immutable `MCP-EXEC-*` authorization record to `agent_security_audit_log` before SQL execution. |
-| **Zero-Token MCP Wire Verifier** (`ADR-009`) | `P2pMcpContractVerifierService` invokes remote `ToolCallback` instances directly over JSON-RPC without calling Gemini | Isolates pure MCP wire + DB latency from LLM inference latency at **₹0.00 token cost**. |
+- **Release Milestones:**
+    - `v1.0-phase2-complete` — Phase 2: Agentic DAG Orchestration, Transactional `@Tool` Execution, Hybrid RAG (`pgvector` + `tsvector` RRF + Cross-Encoder Reranking), Bounded Loop Guardrails, RBAC & HITL Lifecycle (`ADR-001` – `ADR-006`).
+    - `v2.0.0` — Phase 3: Standalone Model Context Protocol (MCP) Server/Client Split (`:8081` SSE / `:8080` Client / Headless `mcp-stdio`), Cross-JVM AspectJ Security Auditing, and Zero-Token Wire Contract Verification (`ADR-007` – `ADR-010`).
 
 ---
 
-## 2. System Topology & Execution Flow
+## 1. Executive Summary (BLUF)
 
-### 2.1 Dual-JVM MCP Client/Server & Headless STDIO Architecture (`ADR-007` – `ADR-010`)
+Enterprise supply chains suffer from delayed stockout detection, manual vendor contract verification, and unguarded LLM tool execution risks. **System 1** is an autonomous, event-driven **Procure-to-Pay (P2P) & Supply Chain Risk Agent** engineered for high-reliability enterprise environments:
+
+- **Deterministic Financial Guardrails:** Automatically executes restock purchase orders under **₹50,000** while hard-pausing orders above **₹50,000** in `PENDING_MANAGER_APPROVAL` for Human-in-the-Loop (HITL) manager sign-off (`ADR-001`, `ADR-006`).
+- **Hybrid RAG + Cross-Encoder Reranking:** Combines `pgvector` dense embeddings with PostgreSQL `tsvector` BM25 keyword search via **Reciprocal Rank Fusion (RRF, k=60)** and Cross-Encoder reranking over vendor SLA contracts and procurement policies (`ADR-002`).
+- **Bounded Loop & Graph Orchestration:** Replaces open-ended ReAct loops with a deterministic DAG (`P2pGraphOrchestrator`) using Java 21 Virtual Threads for parallel pre-check fan-out, step-count circuit breakers (`maxStepsAllowed: 5`), and token budget enforcement (`ADR-003`, `ADR-004`).
+- **Zero-Trust Model Context Protocol (MCP) Topology:** Decouples the Agent Orchestrator (`mcp-client` on `:8080`) from the Database/Tool Execution boundary (`mcp-server` on `:8081` over HTTP/SSE and headless `mcp-stdio`), enforcing cross-JVM AspectJ RBAC auditing (`MCP-EXEC-*`) and automatic fail-closed Dead-Letter Queue (`agent_dlq_events`) routing (`ADR-007` – `ADR-010`).
+
+---
+
+## 2. System Architecture & Cross-JVM MCP Topology
 
 ```mermaid
 flowchart TB
-    subgraph External["External Enterprise Triggers & Operators"]
-        ERP["ERP Stock Webhook\n(ROLE_ERP_WEBHOOK)"]
-        MGR["Procurement Manager\n(ROLE_PROCUREMENT_MANAGER)"]
-        OPS["Ops / CI Verifier\n(ROLE_SUPPLY_CHAIN_OPERATOR)"]
-        CLI["@google/gemini-cli / Claude\n(Subprocess Host)"]
+    subgraph External["Enterprise Producers & Control Plane"]
+        ERP["ERP Stock Consumption Webhook<br/>(POST /api/v1/p2p/webhooks/stock-consumption)"]
+        MGR["Procurement Manager HITL Resume<br/>(POST /api/v1/p2p/control-plane/hitl/resume)"]
+        CLI["@google/gemini-cli / Python CI Runner<br/>(scripts/verify_mcp_stdio.py)"]
     end
 
-    subgraph ClientJVM["Orchestrator & Control Plane JVM (Port 8080 | Profile: mcp-client)"]
-        MW["ErpEventMiddlewareService\n(Batch Idempotency + DLQ Routing)"]
-        ORCH["P2pGraphOrchestrator\n(Virtual-Thread Fan-Out + Pre-Checks)"]
-        ROUTER["P2pMcpToolRouter\n(Self-Healing SSE Client + Fail-Closed Guard)"]
-        AGENT["P2PAgentService\n(Gemini 2.5 Flash + BoundedLoopAdvisor)"]
-        CTRL["P2pLifecycleCoordinatorService\n(HITL Resume + Correlated Trace + DLQ Sweep)"]
-        CONTRACT["P2pMcpContractVerifierService\n(Zero-Token JSON-RPC Wire Verifier)"]
-        RBAC_C["RbacGuardService (Hop 1 Audit)"]
+    subgraph ClientJVM["Orchestrator JVM (Port 8080 | Profile: mcp-client)"]
+        MW["ErpEventMiddlewareService<br/>(Idempotency + DLQ FOR UPDATE SKIP LOCKED)"]
+        RBAC_C["RbacGuardService<br/>(Client RBAC Boundary)"]
+        GRAPH["P2pGraphOrchestrator<br/>(Java 21 Virtual Thread Fan-Out)"]
+        LOOP["BoundedLoopAdvisor & P2PAgentService<br/>(Max Steps=5 + Token Budget + Gemini 2.5 Flash)"]
+        ROUTER["P2pMcpToolRouter<br/>(SSE Self-Heal + Fail-Closed Guard)"]
+        VERIFIER["P2pMcpContractVerifierService<br/>(Zero-Token JSON-RPC Wire Probe)"]
     end
 
-    subgraph ServerJVM["Isolated MCP Server JVM (Port 8081: mcp-server | Headless: mcp-stdio)"]
-        FILTER["McpServerTransportGuardFilter\n(Loopback IP + Optional X-MCP-API-Key)"]
-        ASPECT["P2pMcpServerAuditAspect\n(Hop 2 AspectJ @Around RBAC Audit)"]
-        PROC_TOOLS["ProcurementTools (@Tool)\n- checkInventoryLevels\n- createPurchaseOrder"]
-        RAG_TOOLS["ComplianceRagTools (@Tool)\n- checkCompliancePolicy\n- verifyVendorSlaAndProcurementPolicy"]
+    subgraph ServerJVM["Tool Execution JVM (Port 8081: mcp-server | Headless: mcp-stdio)"]
+        FILTER["McpServerTransportGuardFilter<br/>(Loopback + Optional X-MCP-API-Key)"]
+        ASPECT["P2pMcpServerAuditAspect<br/>(AspectJ @Around -> MCP-EXEC-* Audit)"]
+        TOOLS_P["ProcurementTools (@Tool)<br/>(checkInventoryLevels, createPurchaseOrder)"]
+        TOOLS_C["ComplianceRagTools (@Tool)<br/>(verifyVendorSlaAndProcurementPolicy, checkCompliancePolicy)"]
     end
 
-    subgraph Storage["Neon Serverless PostgreSQL (Hikari Pool Capped at 3 per JVM)"]
-        DB_INV[("inventory_items\npurchase_orders\nerp_event_ledger")]
-        DB_VEC[("compliance_policy_chunks\n(pgvector + tsvector RRF k=60)")]
-        DB_AUD[("agent_security_audit_log\nagent_workflow_runs\nagent_dlq_events")]
+    subgraph Storage["Neon Serverless PostgreSQL (Hikari Pool Capped at 3/JVM)"]
+        LEDGER[("erp_event_ledger &<br/>agent_workflow_runs")]
+        INV[("inventory_items &<br/>purchase_orders")]
+        RAG_DB[("compliance_policy_chunks<br/>(pgvector + tsvector RRF k=60)")]
+        AUDIT[("agent_security_audit_log &<br/>agent_dlq_events")]
     end
 
-    ERP -->|POST /webhook/consumption| MW
-    MW --> RBAC_C
-    MW -->|Stockout Detected| ORCH
-    ORCH --> ROUTER
-    ORCH --> AGENT
-    AGENT -->|Remote ToolCallback| ROUTER
-    MGR -->|POST /hitl/resume\nGET /traces/{key}| CTRL
-    CTRL --> RBAC_C
-    OPS -->|POST /mcp-contract/verify| CONTRACT
-    CONTRACT -->|Zero-LLM-Token Probe| ROUTER
-
-    ROUTER ==>|HTTP/SSE JSON-RPC\nGET /sse & POST /mcp/message| FILTER
-    CLI -.->|STDIN / STDOUT JSON-RPC\n(Profile: mcp-stdio)| ASPECT
+    ERP --> MW
+    MGR --> RBAC_C
+    MW --> RBAC_C --> GRAPH --> LOOP --> ROUTER
+    ROUTER -- "JSON-RPC 2.0 over HTTP/SSE (:8081)" --> FILTER
+    VERIFIER -- "Zero-Token Wire Probe" --> FILTER
+    CLI -- "JSON-RPC 2.0 over STDIN/STDOUT" --> ASPECT
     FILTER --> ASPECT
-    ASPECT --> PROC_TOOLS
-    ASPECT --> RAG_TOOLS
-    ASPECT -->|INSERT MCP-EXEC-*| DB_AUD
-    PROC_TOOLS --> DB_INV
-    RAG_TOOLS --> DB_VEC
-    CTRL --> DB_INV
-    CTRL --> DB_AUD
-```
-
-### 2.2 Deterministic HITL Approval & Fail-Closed DLQ State Machine (`ADR-003` – `ADR-006`)
-
-```mermaid
-stateDiagram-v2
-    [*] --> WebhookReceived: ERP Stock Consumption Payload
-    WebhookReceived --> DuplicateIgnored: batch_id exists in erp_event_ledger
-    WebhookReceived --> StockDeducted: New batch_id (Idempotent Lock)
-
-    StockDeducted -->HealthyStock: netDeficit <= 0
-    HealthyStock --> [*]
-
-    StockDeducted --> McpBridgeProbe: netDeficit > 0 (Stockout)
-    McpBridgeProbe --> FailClosedDLQ: Port 8081 Down / EOF
-    FailClosedDLQ --> McpBridgeProbe: replayDlqEvent (FOR UPDATE SKIP LOCKED)
-
-    McpBridgeProbe --> ParallelPreCheck: Port 8081 Healthy (4 Tools Active)
-    ParallelPreCheck --> AgentExecution: Inventory + Hybrid RAG Context Injected
-
-    AgentExecution --> AutoApprovedPO: Total PO <= INR 50,000
-    AgentExecution --> PausedForHITL: Total PO > INR 50,000 (PENDING_MANAGER_APPROVAL)
-
-    PausedForHITL --> CompletedAfterHITL: Manager APPROVE (ROLE_PROCUREMENT_MANAGER)
-    PausedForHITL --> RejectedByManager: Manager REJECT (ROLE_PROCUREMENT_MANAGER)
-
-    AutoApprovedPO --> CorrelatedAuditTrace
-    CompletedAfterHITL --> CorrelatedAuditTrace
-    RejectedByManager --> CorrelatedAuditTrace
-    CorrelatedAuditTrace --> [*]
+    ASPECT --> TOOLS_P & TOOLS_C
+    TOOLS_P --> INV
+    TOOLS_C --> RAG_DB
+    MW & ASPECT & RBAC_C --> AUDIT
+    MW --> LEDGER
 ```
 
 ---
 
-## 3. Empirical Split-Latency & Production Benchmarks
+## 3. Empirical Latency, Token Economics & Wire Benchmarks
 
-Captured on **12 GB RAM Workstation + Neon Serverless PostgreSQL (ap-southeast-1)** using `POST /api/v1/p2p/control-plane/mcp-contract/verify` (`ADR-009`):
+Measured against live **Neon Serverless PostgreSQL** and **Google AI Studio (`gemini-2.5-flash`)** on a 12 GB RAM dual-JVM setup (`HikariCP max-pool-size=3` per JVM):
 
-| Execution Path / Layer | Measured Latency (ms) | LLM Tokens Used | Security Audit Rows Written | Notes |
-| :--- | :---: | :---: | :---: | :--- |
-| **MCP Bridge Health Handshake** (`listTools()`) | `85 – 140 ms` | `0` | `0` | Probes `:8081` SSE readiness (`registeredToolCount: 4`). |
-| **Remote SQL Tool over MCP** (`checkInventoryLevels`) | `754 ms` | `0` | `2` (`MCP-CONTRACT-*` + `MCP-EXEC-*`) | Includes JSON-RPC wire serialization, AspectJ RBAC audit `INSERT`, and Neon DB stock + in-flight PO calculation. |
-| **Remote Hybrid RAG + Cross-Encoder over MCP** (`verifyVendorSlaAndProcurementPolicy`) | `2,171 ms` | `0` | `2` (`MCP-CONTRACT-*` + `MCP-EXEC-*`) | Includes embedding generation, `pgvector` + `tsvector` RRF (`k=60`) query, Cross-Encoder reranking, and AspectJ audit `INSERT`. |
-| **Full Zero-Token Contract Verification Suite** (`/mcp-contract/verify`) | `4,558 ms` | `0` (`₹0.00`) | `3` (1 Client + 2 Server) | Verifies schema parity, runs both read-only wire probes, and asserts server audit persistence. |
-| **Full E2E Agentic P2P Run** (Webhook $\rightarrow$ Gemini 2.5 Flash $\rightarrow$ Remote PO Creation) | `3,800 – 5,400 ms` | `~1,150 – 1,650` | `4+` | Bounded by `BoundedLoopAdvisor` (`maxStepsAllowed = 5`). |
+| Operation / Execution Path | Transport / Mode | LLM Tokens Used | Empirical Latency | Reliability / Guardrail Behavior |
+|---|---|---:|---:|---|
+| **MCP Bridge Health Probe** (`/mcp-bridge-status`) | HTTP/SSE `tools/list` | `0` | `~45 – 110 ms` | Detects `:8081` restart & self-heals SSE client |
+| **Wire Probe: `checkInventoryLevels`** | JSON-RPC `tools/call` (`:8080` → `:8081`) | `0` | `~754 ms` | Writes `MCP-EXEC-*` `ALLOWED` audit row |
+| **Wire Probe: `verifyVendorSlaAndProcurementPolicy`** | JSON-RPC `tools/call` (`pgvector` + `tsvector` RRF + Rerank) | `0` | `~2,171 ms` | Hybrid RRF (`k=60`) + Cross-Encoder scoring |
+| **Full E2E Agentic Restock Loop** (`SKU-TITANIUM-VALVE-99`) | Virtual-Thread Pre-Check + Remote MCP Tool Call | `3 / 5 steps` | `~4.8 – 6.4 s` | Pauses ₹62,500 PO in `PENDING_MANAGER_APPROVAL` |
+| **Chaos Fail-Closed Routing** (`:8081` Unreachable) | Fast-Fail Circuit Breaker | `0` | `< 50 ms` | Persists webhook payload to `agent_dlq_events` (`PENDING_REPLAY`) |
 
 ---
 
-## 4. Golden Correlated Execution Trace (`docs/sample/correlated-execution-trace-sample.json`)
+## 4. Verified End-to-End Correlated Execution Trace
 
-Below is a real production trace retrieved via `GET /api/v1/p2p/control-plane/traces/BATCH-2026-10-24-E2E-001` after a **₹62,500** purchase order (`SKU-TITANIUM-VALVE-99`, 25 units @ ₹2,500/unit) was paused by the ₹50,000 HITL gate and subsequently approved by `mgr-procurement-01` (`ROLE_PROCUREMENT_MANAGER`):
+Full sample artifact: [`docs/sample/correlated-execution-trace-sample `](docs/sample/correlated-execution-trace-sample.json)
+
+Calling `GET /api/v1/p2p/control-plane/trace/BATCH-2026-10-24-E2E-001` joins `erp_event_ledger`, `agent_workflow_runs`, `purchase_orders`, `api_cost_logs`, and `agent_security_audit_log` into a single deterministic audit trail:
 
 ```json
 {
@@ -178,50 +140,46 @@ Below is a real production trace retrieved via `GET /api/v1/p2p/control-plane/tr
 
 ## 5. Architecture Decision Records (ADR Index)
 
-| ADR | Title | Key Architectural Trade-off & Decision |
-| :--- | :--- | :--- |
-| **`ADR-001`** | **Transactional `@Tool` Design & Deterministic ₹50k HITL Gate** | Calculate authoritative PO totals in SQL (`BigDecimal`) rather than trusting LLM arithmetic; enforce in-flight duplicate PO prevention and `PENDING_MANAGER_APPROVAL` for orders $>$ ₹50,000. |
-| **`ADR-002`** | **Hybrid Search (`pgvector` + `tsvector` RRF k=60) & Cross-Encoder Reranking** | Combine dense vector search with exact keyword matching (`POL-PROC-2026-09`, SKU codes) in single PostgreSQL CTE, followed by Cross-Encoder top-k reranking. |
-| **`ADR-003`** | **Loop Engineering: `BoundedLoopAdvisor` & Token Circuit Breakers** | Cap agent execution at `max_steps = 5` with strict token-budget logging (`api_cost_logs`) to prevent runaway agent loops. |
-| **`ADR-004`** | **Graph Engineering: Virtual-Thread Fan-Out & Conditional Routing** | Run inventory triage and compliance policy retrieval concurrently on Java 21 virtual threads before invoking Gemini. |
-| **`ADR-005`** | **Enterprise Middleware, Deterministic RBAC & DLQ Replay (`SKIP LOCKED`)** | Enforce `ROLE_ERP_WEBHOOK`, `ROLE_SUPPLY_CHAIN_OPERATOR`, and `ROLE_PROCUREMENT_MANAGER` via `RbacGuardService`; route failures to `agent_dlq_events` and replay safely using `FOR UPDATE SKIP LOCKED`. |
-| **`ADR-006`** | **HITL Lifecycle Coordination & Non-Rollback Correlated Trace Auditing** | Synchronize `purchase_orders`, `agent_workflow_runs`, and `erp_event_ledger` on manager decision; return structured `TRACE_NOT_FOUND` instead of throwing unchecked exceptions so `@Transactional` audit logs never roll back. |
-| **`ADR-007`** | **Dual-Profile MCP Server/Client Extraction & Self-Healing SSE Router** | Extract `@Tool` beans into `:8081` (`mcp-server`) with Hikari pool capped at 3; implement `P2pMcpToolRouter` on `:8080` (`mcp-client`) to auto-reconnect broken SSE pipes and fail closed to DLQ when `:8081` is down. |
-| **`ADR-008`** | **Zero-Trust MCP Server AspectJ RBAC Audit & Loopback Transport Guard** | Intercept all remote `@Tool` executions on `:8081` via `P2pMcpServerAuditAspect` (`MCP-EXEC-*`) and restrict `/sse` + `/mcp/message` via `McpServerTransportGuardFilter`. |
-| **`ADR-009`** | **Deterministic Zero-Token MCP Wire Contract & Split-Latency Verifier** | Invoke remote `ToolCallback` instances directly from `:8080` to verify schema parity, measure pure MCP wire + DB latency (`754 ms` / `2,171 ms`), and confirm server audit persistence at ₹0.00 LLM cost. |
-| **`ADR-010`** | **Headless `mcp-stdio` Subprocess Harness & Strict `STDOUT` Framing** | Suppress Spring Boot banners and console logs in `mcp-stdio` mode so `@google/gemini-cli` and `scripts/verify_mcp_stdio.py` exchange clean newline-delimited JSON-RPC 2.0 frames over `STDIN`/`STDOUT`. |
+All architectural trade-offs are documented in `docs/adr/`:
+
+| ADR | Title | Core Decision & Guardrail Enforced |
+|---|---|---|
+| **ADR-001** | Transactional `@Tool` Design & Deterministic HITL Gate | Calculate authoritative PO pricing inside PostgreSQL; route POs above ₹50,000 to `PENDING_MANAGER_APPROVAL`; exclude `confirmHighValuePurchaseOrder` from LLM tool surface. |
+| **ADR-002** | Hybrid Search (`pgvector` + `tsvector` RRF) & Cross-Encoder Reranking | Combine semantic dense retrieval with exact clause/SKU keyword matching via Reciprocal Rank Fusion (`k=60`) and deterministic reranking. |
+| **ADR-003** | Bounded Loop Engineering & Cost Telemetry | Enforce hard step limits (`maxSteps=5`), token budgets, and per-call cost logging in `api_cost_logs` via `BoundedLoopAdvisor`. |
+| **ADR-004** | Deterministic DAG Orchestration & Virtual-Thread Fan-Out | Pre-compute inventory deficit and vendor SLA compliance concurrently on Java 21 Virtual Threads before invoking Gemini for transactional PO execution. |
+| **ADR-005** | Deterministic RBAC, Webhook Idempotency & DLQ Replay | Enforce pre-execution RBAC (`agent_security_audit_log`), `batch_id` idempotency, and concurrent-safe `FOR UPDATE SKIP LOCKED` DLQ replay. |
+| **ADR-006** | HITL Lifecycle Coordinator & Unified Correlated Audit Trace | Synchronize state transitions across `purchase_orders`, `agent_workflow_runs`, and `erp_event_ledger` on manager approval/rejection. |
+| **ADR-007** | Multi-Profile MCP Server/Client Split & SSE Self-Healing | Extract `@Tool` beans into `:8081` (`mcp-server`), cap HikariCP pools at 3 per JVM for 12 GB RAM hosts, and auto-heal stale SSE transports in `P2pMcpToolRouter`. |
+| **ADR-008** | Zero-Trust MCP Server Audit Aspect & Loopback Transport Filter | Intercept every remote tool invocation on `:8081` via AspectJ `@Around` (`P2pMcpServerAuditAspect`) and restrict `/sse` & `/mcp/message` to trusted loopback origins. |
+| **ADR-009** | Zero-Token MCP Wire Contract Verifier & Telemetry Endpoint | Programmatically verify schema parity across the 4 exposed tools, assert HITL approval tool exclusion, and benchmark live JSON-RPC round-trip latency with zero LLM token burn. |
+| **ADR-010** | Headless `mcp-stdio` Subprocess Transport & Strict STDOUT Framing | Configure zero-banner, file-routed logging (`./logs/mcp-stdio-server.log`) for clean newline-delimited JSON-RPC 2.0 execution under `@google/gemini-cli` and CI harnesses. |
 
 ---
 
-## 6. Local Execution & Verification Guide (12 GB RAM Optimized)
+## 6. Local Execution Runbook (12 GB RAM Optimized)
 
-### 6.1 Start Dual-JVM HTTP/SSE Mode (`:8081` + `:8080`)
+### Mode A: Dual-JVM HTTP/SSE Production Topology (`:8081` + `:8080`)
 ```bash
-# Terminal 1: Start Isolated MCP Server on Port 8081 (Hikari max-pool-size=3)
-mvn spring-boot:run -Dspring-boot.run.profiles=mcp-server
+# Terminal 1: Start Isolated MCP Server on Port 8081
+mvn spring-boot:run -Dspring-boot.run.profiles=mcp-server \
+  -Dspring-boot.run.jvmArguments="-Xms256m -Xmx512m"
 
-# Terminal 2: Start P2P Orchestrator & Control Plane on Port 8080 (Hikari max-pool-size=3)
-mvn spring-boot:run -Dspring-boot.run.profiles=mcp-client
+# Terminal 2: Start P2P Agent Orchestrator (MCP Client) on Port 8080
+mvn spring-boot:run -Dspring-boot.run.profiles=mcp-client \
+  -Dspring-boot.run.jvmArguments="-Xms256m -Xmx512m"
+
+# Terminal 3: Run Zero-Token Wire Contract & Audit Verification
+curl -X POST "http://localhost:8080/api/v1/p2p/control-plane/mcp-contract/verify" \
+  -H "X-Actor-Id: sec-auditor-01" \
+  -H "X-Actor-Role: ROLE_PROCUREMENT_MANAGER"
 ```
 
-### 6.2 Run Zero-Token MCP Contract & Split-Latency Verification
+### Mode B: Headless STDIO Subprocess Harness (`mcp-stdio`)
 ```bash
-# 1. Probe MCP Bridge Readiness
-curl -s http://localhost:8080/api/v1/p2p/control-plane/mcp-bridge-status | jq
-
-# 2. Execute Zero-Token Wire Contract Probe (:8080 -> :8081 -> Neon DB)
-curl -s -X POST "http://localhost:8080/api/v1/p2p/control-plane/mcp-contract/verify?sampleSku=SKU-TITANIUM-VALVE-99&sampleVendorId=VEND-TATA-IND" \
-  -H "X-Actor-Id: ops-lead-01" \
-  -H "X-Actor-Role: ROLE_SUPPLY_CHAIN_OPERATOR" | jq
-
-# 3. Inspect Cross-Process MCP-EXEC-* Security Audit Telemetry
-curl -s http://localhost:8080/api/v1/p2p/control-plane/mcp-contract/audit-telemetry \
-  -H "X-Actor-Id: ops-lead-01" \
-  -H "X-Actor-Role: ROLE_SUPPLY_CHAIN_OPERATOR" | jq
-```
-
-### 6.3 Run Headless `mcp-stdio` Subprocess Verification (`ADR-010`)
-```bash
+# Build executable JAR
 mvn clean package -DskipTests
+
+# Run Automated Python JSON-RPC 2.0 STDIO Verification Harness
 python scripts/verify_mcp_stdio.py
 ```
