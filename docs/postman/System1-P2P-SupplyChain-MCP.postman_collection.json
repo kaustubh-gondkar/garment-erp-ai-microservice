@@ -1,0 +1,786 @@
+{
+  "info": {
+    "_postman_id": "c78418c6-377e-405d-998d-6e16ed4f4201",
+    "name": "Ai-First",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "25864250"
+  },
+  "item": [
+    {
+      "name": "p2p",
+      "item": [
+        {
+          "name": "Procure",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"prompt\": \"Audit all inventory items currently below their reorder threshold and raise purchase orders to bring them exactly back up to their reorder threshold.\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/agent/procure",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "agent",
+                "procure"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "rag seed",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/api/v1/debug/rag/seed",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "debug",
+                "rag",
+                "seed"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "defect penalty",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/api/v1/debug/rag/search?query=HSN+5205+defect+penalty&vendorId=VEND-101",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "debug",
+                "rag",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "HSN+5205+defect+penalty"
+                },
+                {
+                  "key": "vendorId",
+                  "value": "VEND-101"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "workflow-execute",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idempotencyKey\": \"HITL-DYE-85K-003\",\n    \"prompt\": \"Verify compliance for vendor VEND-LARSEN-T and raise a purchase order for 50 drums of SKU-IND-DYE-05 totaling INR 85,000.\"\n  }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/workflows/execute",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "workflows",
+                "execute"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "resume via approval",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/workflows/42bf8c18-035a-485d-9a0b-569260b83270/approve?poId=8f677bd3-9d97-451a-b1df-06229dca4c7b&approverId=VP-SUPPLY-CHAIN",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "workflows",
+                "42bf8c18-035a-485d-9a0b-569260b83270",
+                "approve"
+              ],
+              "query": [
+                {
+                  "key": "poId",
+                  "value": "8f677bd3-9d97-451a-b1df-06229dca4c7b"
+                },
+                {
+                  "key": "approverId",
+                  "value": "VP-SUPPLY-CHAIN"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "http://localhost:8080/api/v1/p2p/workflows/execute",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is COMPLETED or AWAITING_HUMAN_APPROVAL\", function () {\r\n    const json = pm.response.json();\r\n    pm.expect([\"COMPLETED\", \"AWAITING_HUMAN_APPROVAL\", \"TERMINATED_STEP_LIMIT\"]).to.include(json.status);\r\n});\r\n\r\npm.test(\"Step count obeys bounds\", function () {\r\n    const json = pm.response.json();\r\n    pm.expect(json.stepsUsed).to.be.at.most(6);\r\n});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"idempotencyKey\": \"ADV-LOOP-TEST-003\",\n    \"prompt\": \"You are auditing our catalog. Call checkCompliancePolicy individually for the following 10 fabric types one after another before responding: Silk, Cotton, Rayon, Polyester, Nylon, Linen, Wool, Jute, Acrylic, and Spandex. Do not skip any.\"\n  }",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/workflows/execute",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "workflows",
+                "execute"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "graph/execute",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"conversationId\":\"testRej\",\r\n    \"prompt\":\"Check SLA compliance for VENDOR-TATA-01 and raise a PO for 20 units of SKU-STEEL-01.\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/graph/execute",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "graph",
+                "execute"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "events/consumption",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": " application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": " sap-plant-pune-01"
+              },
+              {
+                "key": "X-Actor-Role",
+                "value": " ROLE_ERP_WEBHOOK"
+              },
+              {
+                "key": "X-Correlation-Id",
+                "value": " BATCH-2026-10-24-E2E-003"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"batchId\": \"BATCH-2026-10-24-E2E-022\",\r\n  \"sku\": \"SKU-TITANIUM-VALVE-99\",\r\n  \"quantityUsed\": 40,\r\n  \"preferredVendorId\": \"VEND-TATA-IND\",\r\n  \"sourceSystem\": \"SAP_S4HANA\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/erp/events/consumption",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "erp",
+                "events",
+                "consumption"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "decision",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": "vp-procurement-ind"
+              },
+              {
+                "key": "X-Actor-Role",
+                "value": " ROLE_PROCUREMENT_MANAGER"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"decision\": \"APPROVED\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/erp/po/043d42ad-5a04-4b30-beee-ddb5d845f2a7/decision",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "erp",
+                "po",
+                "043d42ad-5a04-4b30-beee-ddb5d845f2a7",
+                "decision"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "traces",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": " mgr-procurement-01"
+              },
+              {
+                "key": "X-Actor-Role",
+                "value": " ROLE_PROCUREMENT_MANAGER"
+              }
+            ],
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/control-plane/traces/PO-SKU-TITANIUM-VALVE-99-VEND-TATA-IND-25-2d87e872",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "control-plane",
+                "traces",
+                "PO-SKU-TITANIUM-VALVE-99-VEND-TATA-IND-25-2d87e872"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "resume with creds",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": " application/json"
+              },
+              {
+                "key": "X-Actor-Id",
+                "value": " mgr-procurement-01"
+              },
+              {
+                "key": "X-Actor-Role",
+                "value": " ROLE_PROCUREMENT_MANAGER"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"idempotencyKey\": \"PO-SKU-TITANIUM-VALVE-99-VEND-TATA-IND-25-2d87e872\",\r\n  \"poId\": \"9e283f58-4099-4f57-9991-8f518d0d2804\",\r\n  \"managerDecision\": \"APPROVE\",\r\n  \"reason\":\"Verified titanium valve stockout and vendor SLA compliance POL-PROC-2026-09.\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/control-plane/hitl/resume",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "control-plane",
+                "hitl",
+                "resume"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "replay",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/erp/dlq/2/replay?X-Actor-Role=ROLE_PROCUREMENT_MANAGER",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "erp",
+                "dlq",
+                "2",
+                "replay"
+              ],
+              "query": [
+                {
+                  "key": "X-Actor-Role",
+                  "value": "ROLE_PROCUREMENT_MANAGER"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "mcp-bridge-status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/control-plane/mcp-bridge-status",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "control-plane",
+                "mcp-bridge-status"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "mcp-contract/verify",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Actor-Id",
+                "value": " ops-lead-01"
+              },
+              {
+                "key": "X-Actor-Role",
+                "value": " ROLE_SUPPLY_CHAIN_OPERATOR"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "http://localhost:8080/api/v1/p2p/control-plane/mcp-contract/verify?sampleSku=SKU-TITANIUM-VALVE-99&sampleVendorId=VEND-TATA-IND",
+              "protocol": "http",
+              "host": [
+                "localhost"
+              ],
+              "port": "8080",
+              "path": [
+                "api",
+                "v1",
+                "p2p",
+                "control-plane",
+                "mcp-contract",
+                "verify"
+              ],
+              "query": [
+                {
+                  "key": "sampleSku",
+                  "value": "SKU-TITANIUM-VALVE-99"
+                },
+                {
+                  "key": "sampleVendorId",
+                  "value": "VEND-TATA-IND"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "audit-telemetry",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "audit-telemetry",
+              "host": [
+                "audit-telemetry"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "chat",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/chat?message=hello%20world",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "api",
+            "chat"
+          ],
+          "query": [
+            {
+              "key": "message",
+              "value": "hello%20world"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Bussiness context(System prompts)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/chat/garment?material=silk",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "api",
+            "chat",
+            "garment"
+          ],
+          "query": [
+            {
+              "key": "material",
+              "value": "silk"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Structue OP (JSON Generation)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/chat/garment/structured?material=plastic",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "api",
+            "chat",
+            "garment",
+            "structured"
+          ],
+          "query": [
+            {
+              "key": "material",
+              "value": "plastic"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Converse",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/api/chat/garment/conversation?message=how to store this and which material r u talking about",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "api",
+            "chat",
+            "garment",
+            "conversation"
+          ],
+          "query": [
+            {
+              "key": "message",
+              "value": "how to store this and which material r u talking about"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Ingest",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/ingest",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "ingest"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "search",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/search?query=simple dye order point wise",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "search"
+          ],
+          "query": [
+            {
+              "key": "query",
+              "value": "simple dye order point wise"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "upload",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "uuid": "69c8f6b7-eed6-496d-9780-88f2c7856509",
+              "src": "/C:/Users/kaust/Downloads/fabric-dye-order.pdf"
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8080/upload",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "upload"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "agent",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/chat/agent?message=Please log 500 meters of raw denim fabric into our tracking system",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "chat",
+            "agent"
+          ],
+          "query": [
+            {
+              "key": "message",
+              "value": "Please log 500 meters of raw denim fabric into our tracking system"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "stream",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "http://localhost:8080/chat/stream?message=What is our total stock?",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8080",
+          "path": [
+            "chat",
+            "stream"
+          ],
+          "query": [
+            {
+              "key": "message",
+              "value": "What is our total stock?"
+            }
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
