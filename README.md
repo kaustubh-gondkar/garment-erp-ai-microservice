@@ -182,4 +182,4 @@ mvn clean package -DskipTests
 
 # Run Automated Python JSON-RPC 2.0 STDIO Verification Harness
 python scripts/verify_mcp_stdio.py
-```
+```  
